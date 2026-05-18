@@ -3,6 +3,23 @@
 const { v4: uuidv4 } = require("uuid");
 const logger          = require("../logger");
 
+function getMediasoupListenInfo(protocol) {
+  const announcedAddress = process.env.MEDIASOUP_ANNOUNCED_IP || "127.0.0.1";
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    /^(localhost|127\.|0\.0\.0\.0$)/i.test(announcedAddress)
+  ) {
+    throw new Error("MEDIASOUP_ANNOUNCED_IP must be the public Droplet IP in production.");
+  }
+
+  return {
+    protocol,
+    ip: process.env.MEDIASOUP_LISTEN_IP || "0.0.0.0",
+    announcedAddress,
+  };
+}
+
 class Room {
 
   constructor({ artistId, artistName, title, router }) {
@@ -29,16 +46,8 @@ class Room {
   async createWebRtcTransport(socketId, direction) {
     const transport = await this.router.createWebRtcTransport({
       listenInfos: [
-        {
-          protocol   : "udp",
-          ip         : process.env.MEDIASOUP_LISTEN_IP || "0.0.0.0",
-          announcedAddress: process.env.MEDIASOUP_ANNOUNCED_IP || "127.0.0.1",
-        },
-        {
-          protocol   : "tcp",
-          ip         : process.env.MEDIASOUP_LISTEN_IP || "0.0.0.0",
-          announcedAddress: process.env.MEDIASOUP_ANNOUNCED_IP || "127.0.0.1",
-        },
+        getMediasoupListenInfo("udp"),
+        getMediasoupListenInfo("tcp"),
       ],
       enableUdp    : true,
       enableTcp    : true,
@@ -99,7 +108,7 @@ class Room {
     const consumer = await transport.consume({
       producerId,
       rtpCapabilities,
-      paused: false,
+      paused: true,
     });
 
     this._consumers.set(consumer.id, consumer);
