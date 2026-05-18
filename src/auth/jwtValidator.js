@@ -32,7 +32,7 @@ function validateToken(token) {
       {
         algorithms: ["RS256"],
         issuer    : process.env.JWT_ISSUER || "http://identity-service:8081",
-        ...(process.env.JWT_AUDIENCE ? { audience: process.env.JWT_AUDIENCE } : {}),
+        audience  : process.env.JWT_AUDIENCE || "streambuted-api",
       },
       (err, decoded) => {
         if (err) return reject(new Error(`JWT invalid: ${err.message}`));
