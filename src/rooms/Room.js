@@ -120,6 +120,10 @@ class Room {
 
   addListener(socketId)    { this._listeners.add(socketId); }
   removeListener(socketId) { this._listeners.delete(socketId); }
+  hasListener(socketId)    { return this._listeners.has(socketId); }
+  ownsConsumer(socketId, consumerId) {
+    return this._consumerSocketIndex.get(consumerId) === socketId;
+  }
   get listenerCount()      { return this._listeners.size; }
   get producerIds()        { return [...this._producers.keys()]; }
 

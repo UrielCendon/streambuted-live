@@ -19,6 +19,26 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     socket.emit(`${event}:error`, { error: "VALIDATION_OR_RUNTIME_ERROR", message });
   };
 
+  const getAuthorizedRoom = (event, roomId, direction = null) => {
+    const room = roomManager.getOrThrow(roomId);
+
+    if (direction === "send" || event === "live:produce") {
+      if (!isArtistRole || room.artistId !== userId) {
+        replyError(event, "Room not found or you are not the owner");
+        return null;
+      }
+    }
+
+    if (direction === "recv" || event === "live:consume" || event === "live:resumeConsumer") {
+      if (!socket.rooms.has(roomId) || !room.hasListener(socket.id)) {
+        replyError(event, "Join the room before consuming media");
+        return null;
+      }
+    }
+
+    return room;
+  };
+
   socket.on("live:create", async ({ title } = {}) => {
     if (!isArtistRole) {
       return replyError("live:create", "Only artists can start a live concert");
@@ -136,7 +156,8 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     }
 
     try {
-      const room      = roomManager.getOrThrow(targetRoomId);
+      const room      = getAuthorizedRoom("live:createTransport", targetRoomId, targetDirection);
+      if (!room) return;
       const transport = await room.createWebRtcTransport(socket.id, targetDirection);
 
       socket.emit("live:transportCreated", {
@@ -167,7 +188,8 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     }
 
     try {
-      const room      = roomManager.getOrThrow(targetRoomId);
+      const room      = getAuthorizedRoom("live:connectTransport", targetRoomId, targetDirection);
+      if (!room) return;
       const transport = room._transports.get(`${socket.id}:${targetDirection}`);
       if (!transport || transport.id !== transportId) {
         return replyError("live:connectTransport", "Transport not found");
@@ -196,7 +218,8 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     }
 
     try {
-      const room     = roomManager.getOrThrow(targetRoomId);
+      const room     = getAuthorizedRoom("live:produce", targetRoomId);
+      if (!room) return;
       const producer = await room.createProducer(socket.id, { kind: targetKind, rtpParameters, appData });
 
       socket.to(targetRoomId).emit("live:newProducer", {
@@ -221,7 +244,8 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     }
 
     try {
-      const room     = roomManager.getOrThrow(targetRoomId);
+      const room     = getAuthorizedRoom("live:consume", targetRoomId);
+      if (!room) return;
       const consumer = await room.createConsumer(socket.id, producerId, rtpCapabilities);
 
       socket.emit("live:consumed", {
@@ -247,9 +271,13 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     }
 
     try {
-      const room     = roomManager.getOrThrow(targetRoomId);
+      const room     = getAuthorizedRoom("live:resumeConsumer", targetRoomId);
+      if (!room) return;
       const consumer = room._consumers.get(consumerId);
       if (!consumer) return replyError("live:resumeConsumer", "Consumer not found");
+      if (!room.ownsConsumer(socket.id, consumerId)) {
+        return replyError("live:resumeConsumer", "Consumer not found");
+      }
 
       await consumer.resume();
       logger.info(`Consumer resumed  consumerId=${consumerId}`);

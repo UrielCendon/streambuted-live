@@ -14,12 +14,16 @@ const roomsRouter = require("./routes/rooms.routes");
 const { authMiddleware } = require("./auth/authMiddleware");
 
 function getAllowedOrigins() {
-  const rawOrigins = process.env.CORS_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || "*";
-  return rawOrigins.split(",").map((origin) => origin.trim()).filter(Boolean);
+  const rawOrigins = process.env.CORS_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || "";
+  const origins = rawOrigins.split(",").map((origin) => origin.trim()).filter(Boolean);
+  if (origins.length === 0 || origins.includes("*")) {
+    throw new Error("CORS_ALLOWED_ORIGINS must define explicit origins and cannot include '*'.");
+  }
+  return origins;
 }
 
 function isOriginAllowed(origin, allowedOrigins) {
-  return !origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin);
+  return !origin || allowedOrigins.includes(origin);
 }
 
 function corsMiddleware(allowedOrigins) {
@@ -27,7 +31,7 @@ function corsMiddleware(allowedOrigins) {
     const origin = req.headers.origin;
 
     if (isOriginAllowed(origin, allowedOrigins)) {
-      res.setHeader("Access-Control-Allow-Origin", origin || allowedOrigins[0] || "*");
+      res.setHeader("Access-Control-Allow-Origin", origin || allowedOrigins[0]);
       res.setHeader("Vary", "Origin");
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -58,7 +62,7 @@ async function main() {
   const io = new Server(server, {
     path: process.env.SOCKET_IO_PATH || "/socket.io",
     cors: {
-      origin: allowedOrigins.includes("*") ? "*" : allowedOrigins,
+      origin: allowedOrigins,
       methods: ["GET", "POST"],
       credentials: true,
     },
