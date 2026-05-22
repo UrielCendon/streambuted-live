@@ -87,3 +87,29 @@ test("authMiddleware returns a controlled 401 when token validation fails", asyn
   assert.equal(res.statusCode, 401);
   assert.equal(res.body.error, "AUTH_INVALID");
 });
+
+test("authMiddleware returns a suspended-account payload when Identity blocks the session", async () => {
+  const authMiddleware = loadAuthMiddleware(async () => {
+    const error = new Error("La cuenta se encuentra suspendida.");
+    error.statusCode = 403;
+    error.error = "AccountBannedException";
+    error.code = "ACCOUNT_BANNED";
+    error.banType = "TEMPORARY";
+    error.bannedUntil = "2026-05-22T13:00:00Z";
+    error.remainingSeconds = 600;
+    throw error;
+  });
+  const req = { headers: { authorization: "Bearer banned-token" } };
+  const res = createResponse();
+  let nextCalls = 0;
+
+  await authMiddleware(req, res, () => {
+    nextCalls += 1;
+  });
+
+  assert.equal(nextCalls, 0);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.error, "AccountBannedException");
+  assert.equal(res.body.code, "ACCOUNT_BANNED");
+  assert.equal(res.body.banType, "TEMPORARY");
+});

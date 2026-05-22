@@ -4,6 +4,13 @@ const jwt      = require("jsonwebtoken");
 const jwksRsa  = require("jwks-rsa");
 const logger   = require("../logger");
 
+const ACCOUNT_BANNED_MESSAGE = "La cuenta se encuentra suspendida.";
+const identityBaseUrl = (
+  process.env.IDENTITY_BASE_URL
+  || process.env.JWT_ISSUER
+  || "http://identity-service:8081"
+).replace(/\/$/, "");
+
 const jwksClient = jwksRsa({
   jwksUri              : process.env.JWT_JWKS_URL
                          || "http://identity-service:8081/api/v1/auth/.well-known/jwks.json",
@@ -42,10 +49,77 @@ function validateToken(token) {
         const name   = decoded.username || decoded.preferred_username || decoded.name || decoded.given_name || decoded.email || userId;
 
         if (!userId) return reject(new Error("Token missing 'sub' claim"));
-        resolve({ userId, role, name });
+
+        validateAccountState(token)
+          .then(() => resolve({ userId, role, name }))
+          .catch(reject);
       }
     );
   });
+}
+
+async function validateAccountState(token) {
+  let response;
+  try {
+    response = await fetch(`${identityBaseUrl}/api/v1/auth/validate`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch (error) {
+    logger.error(`Identity account validation failed: ${error.message}`);
+    const serviceError = new Error("JWT validation is temporarily unavailable.");
+    serviceError.statusCode = 503;
+    serviceError.error = "ServiceUnavailable";
+    throw serviceError;
+  }
+
+  const payload = await parseJsonSafely(response);
+  if (response.ok) {
+    return;
+  }
+
+  if (response.status === 403 && isAccountBannedPayload(payload)) {
+    const bannedError = new Error(payload.message || ACCOUNT_BANNED_MESSAGE);
+    bannedError.statusCode = 403;
+    bannedError.error = "AccountBannedException";
+    bannedError.code = payload.code || "ACCOUNT_BANNED";
+    bannedError.banType = payload.banType;
+    bannedError.bannedUntil = payload.bannedUntil ?? null;
+    bannedError.remainingSeconds = payload.remainingSeconds;
+    throw bannedError;
+  }
+
+  if (response.status === 401) {
+    const authError = new Error("Invalid or expired JWT token.");
+    authError.statusCode = 401;
+    authError.error = "Unauthorized";
+    throw authError;
+  }
+
+  const serviceError = new Error("JWT validation is temporarily unavailable.");
+  serviceError.statusCode = 503;
+  serviceError.error = "ServiceUnavailable";
+  throw serviceError;
+}
+
+async function parseJsonSafely(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return {};
+  }
+
+  try {
+    const payload = await response.json();
+    return payload && typeof payload === "object" ? payload : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function isAccountBannedPayload(payload) {
+  return payload.code === "ACCOUNT_BANNED" || payload.error === "AccountBannedException";
 }
 
 module.exports = { validateToken };

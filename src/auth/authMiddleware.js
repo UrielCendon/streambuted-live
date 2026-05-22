@@ -18,6 +18,25 @@ async function authMiddleware(req, res, next) {
     next();
   } catch (err) {
     logger.warn(`Auth failed: ${err.message}`);
+    if (err.statusCode === 403 && err.error === "AccountBannedException") {
+      return sendError(
+        res,
+        403,
+        "AccountBannedException",
+        err.message,
+        {
+          code: err.code || "ACCOUNT_BANNED",
+          banType: err.banType,
+          bannedUntil: err.bannedUntil ?? null,
+          remainingSeconds: err.remainingSeconds,
+        }
+      );
+    }
+
+    if (err.statusCode === 503) {
+      return sendError(res, 503, "ServiceUnavailable", "La validaci\u00f3n de sesi\u00f3n no est\u00e1 disponible temporalmente.");
+    }
+
     sendError(res, 401, "AUTH_INVALID", "Token is invalid or expired");
   }
 }
