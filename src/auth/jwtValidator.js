@@ -113,7 +113,7 @@ async function parseJsonSafely(response) {
   try {
     const payload = await response.json();
     return payload && typeof payload === "object" ? payload : {};
-  } catch (_error) {
+  } catch {
     return {};
   }
 }
