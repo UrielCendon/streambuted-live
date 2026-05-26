@@ -241,6 +241,7 @@ test("signaling transport flow creates and connects authorized transports", asyn
     user: { userId: "artist-1", role: "ARTIST", name: "Stage Name" },
   });
   const roomManager = {
+    getRoom: () => room,
     getOrThrow: () => room,
   };
 
@@ -267,6 +268,7 @@ test("signaling live:produce emits the producer id and notifies room listeners",
     user: { userId: "artist-1", role: "ARTIST", name: "Stage Name" },
   });
   const roomManager = {
+    getRoom: () => room,
     getOrThrow: () => room,
   };
 
@@ -298,6 +300,7 @@ test("signaling live:consume and live:resumeConsumer protect listener ownership"
   });
   socket.rooms.add("room-1");
   const roomManager = {
+    getRoom: () => room,
     getOrThrow: () => room,
   };
 

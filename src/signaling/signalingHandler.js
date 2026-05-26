@@ -14,24 +14,28 @@ module.exports = function signalingHandler(io, socket, roomManager) {
   const { userId, role, name: userName } = socket.user;
   const isArtistRole = String(role || "").toUpperCase().replace(/^ROLE_/, "") === "ARTIST";
 
-  const replyError = (event, message, err) => {
+  const replyError = (event, code, message, err) => {
     logger.warn(`[${event}] error for user=${userId}: ${message}`, { err: err?.message });
-    socket.emit(`${event}:error`, { error: "VALIDATION_OR_RUNTIME_ERROR", message });
+    socket.emit(`${event}:error`, { error: code, message });
   };
 
   const getAuthorizedRoom = (event, roomId, direction = null) => {
-    const room = roomManager.getOrThrow(roomId);
+    const room = roomManager.getRoom(roomId);
+    if (!room) {
+      replyError(event, "ROOM_NOT_FOUND_OR_FORBIDDEN", "La sala no existe o no esta disponible.");
+      return null;
+    }
 
     if (direction === "send" || event === "live:produce") {
       if (!isArtistRole || room.artistId !== userId) {
-        replyError(event, "Room not found or you are not the owner");
+        replyError(event, "ROOM_NOT_FOUND_OR_FORBIDDEN", "La sala no existe o no te pertenece.");
         return null;
       }
     }
 
     if (direction === "recv" || event === "live:consume" || event === "live:resumeConsumer") {
       if (!socket.rooms.has(roomId) || !room.hasListener(socket.id)) {
-        replyError(event, "Join the room before consuming media");
+        replyError(event, "ROOM_JOIN_REQUIRED", "Debes entrar a la sala antes de consumir media.");
         return null;
       }
     }
@@ -41,12 +45,12 @@ module.exports = function signalingHandler(io, socket, roomManager) {
 
   socket.on("live:create", async ({ title } = {}) => {
     if (!isArtistRole) {
-      return replyError("live:create", "Only artists can start a live concert");
+      return replyError("live:create", "ARTIST_ROLE_REQUIRED", "Solo los artistas pueden iniciar un concierto en vivo.");
     }
 
     const concertTitle = normalizeTitle(title);
     if (!concertTitle) {
-      return replyError("live:create", "Concert title is required");
+      return replyError("live:create", "TITLE_REQUIRED", "El titulo del concierto es obligatorio.");
     }
 
     try {
@@ -69,7 +73,7 @@ module.exports = function signalingHandler(io, socket, roomManager) {
 
       logger.info(`Artist ${userId} created room ${room.id}`);
     } catch (err) {
-      replyError("live:create", err.message, err);
+      replyError("live:create", "LIVE_CREATE_FAILED", "No se pudo crear la sala de live.", err);
     }
   });
 
@@ -78,13 +82,13 @@ module.exports = function signalingHandler(io, socket, roomManager) {
 
     const targetRoomId = validateRoomId(roomId);
     if (!targetRoomId) {
-      return replyError("live:end", "Room id is required");
+      return replyError("live:end", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
 
     try {
       const room = roomManager.getRoom(targetRoomId);
       if (!room || room.artistId !== userId) {
-        return replyError("live:end", "Room not found or you are not the owner");
+        return replyError("live:end", "ROOM_NOT_FOUND_OR_FORBIDDEN", "La sala no existe o no te pertenece.");
       }
 
       io.to(targetRoomId).emit("live:ended", { roomId: targetRoomId, reason: "ARTIST_ENDED" });
@@ -96,20 +100,23 @@ module.exports = function signalingHandler(io, socket, roomManager) {
 
       logger.info(`Artist ${userId} ended room ${targetRoomId}`);
     } catch (err) {
-      replyError("live:end", err.message, err);
+      replyError("live:end", "LIVE_END_FAILED", "No se pudo finalizar la sala de live.", err);
     }
   });
 
   socket.on("live:join", async ({ roomId } = {}) => {
     const targetRoomId = validateRoomId(roomId);
     if (!targetRoomId) {
-      return replyError("live:join", "Room id is required");
+      return replyError("live:join", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
 
     try {
-      const room = roomManager.getOrThrow(targetRoomId);
+      const room = roomManager.getRoom(targetRoomId);
+      if (!room) {
+        return replyError("live:join", "ROOM_NOT_FOUND", "La sala no existe o no esta disponible.");
+      }
       if (room.status !== "LIVE" && room.status !== "CREATED") {
-        return replyError("live:join", "Concert has ended");
+        return replyError("live:join", "CONCERT_ENDED", "El concierto ya finalizo.");
       }
 
       if (socket.data?.roomId && socket.data.roomId !== targetRoomId) {
@@ -140,7 +147,7 @@ module.exports = function signalingHandler(io, socket, roomManager) {
 
       logger.info(`Listener ${userId} joined room ${targetRoomId}`);
     } catch (err) {
-      replyError("live:join", err.message, err);
+      replyError("live:join", "LIVE_JOIN_FAILED", "No se pudo entrar a la sala de live.", err);
     }
   });
 
@@ -149,10 +156,10 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     const targetDirection = validateDirection(direction);
 
     if (!targetRoomId) {
-      return replyError("live:createTransport", "Room id is required");
+      return replyError("live:createTransport", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
     if (!targetDirection) {
-      return replyError("live:createTransport", "Transport direction is invalid");
+      return replyError("live:createTransport", "TRANSPORT_DIRECTION_INVALID", "La direccion del transporte no es valida.");
     }
 
     try {
@@ -169,7 +176,7 @@ module.exports = function signalingHandler(io, socket, roomManager) {
         sctpParameters  : transport.sctpParameters,
       });
     } catch (err) {
-      replyError("live:createTransport", err.message, err);
+      replyError("live:createTransport", "TRANSPORT_CREATE_FAILED", "No se pudo crear el transporte.", err);
     }
   });
 
@@ -178,13 +185,13 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     const targetDirection = validateDirection(direction);
 
     if (!targetRoomId) {
-      return replyError("live:connectTransport", "Room id is required");
+      return replyError("live:connectTransport", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
     if (!targetDirection) {
-      return replyError("live:connectTransport", "Transport direction is invalid");
+      return replyError("live:connectTransport", "TRANSPORT_DIRECTION_INVALID", "La direccion del transporte no es valida.");
     }
     if (!validateRoomId(transportId) || !isObject(dtlsParameters)) {
-      return replyError("live:connectTransport", "Transport parameters are invalid");
+      return replyError("live:connectTransport", "TRANSPORT_PARAMS_INVALID", "Los parametros del transporte no son validos.");
     }
 
     try {
@@ -192,29 +199,29 @@ module.exports = function signalingHandler(io, socket, roomManager) {
       if (!room) return;
       const transport = room._transports.get(`${socket.id}:${targetDirection}`);
       if (!transport || transport.id !== transportId) {
-        return replyError("live:connectTransport", "Transport not found");
+        return replyError("live:connectTransport", "TRANSPORT_NOT_FOUND", "El transporte no existe o ya no esta disponible.");
       }
 
       await transport.connect({ dtlsParameters });
       socket.emit("live:transportConnected", { transportId });
     } catch (err) {
-      replyError("live:connectTransport", err.message, err);
+      replyError("live:connectTransport", "TRANSPORT_CONNECT_FAILED", "No se pudo conectar el transporte.", err);
     }
   });
 
   socket.on("live:produce", async ({ roomId, kind, rtpParameters, appData } = {}) => {
     if (!isArtistRole) {
-      return replyError("live:produce", "Only artists can produce media");
+      return replyError("live:produce", "ARTIST_ROLE_REQUIRED", "Solo los artistas pueden producir media.");
     }
 
     const targetRoomId = validateRoomId(roomId);
     const targetKind = validateKind(kind);
 
     if (!targetRoomId) {
-      return replyError("live:produce", "Room id is required");
+      return replyError("live:produce", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
     if (!targetKind || !isObject(rtpParameters)) {
-      return replyError("live:produce", "Producer parameters are invalid");
+      return replyError("live:produce", "PRODUCER_PARAMS_INVALID", "Los parametros del productor no son validos.");
     }
 
     try {
@@ -229,7 +236,7 @@ module.exports = function signalingHandler(io, socket, roomManager) {
 
       socket.emit("live:produced", { producerId: producer.id });
     } catch (err) {
-      replyError("live:produce", err.message, err);
+      replyError("live:produce", "PRODUCE_FAILED", "No se pudo publicar la media.", err);
     }
   });
 
@@ -237,10 +244,10 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     const targetRoomId = validateRoomId(roomId);
 
     if (!targetRoomId) {
-      return replyError("live:consume", "Room id is required");
+      return replyError("live:consume", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
     if (!validateRoomId(producerId) || !isObject(rtpCapabilities)) {
-      return replyError("live:consume", "Consumer parameters are invalid");
+      return replyError("live:consume", "CONSUMER_PARAMS_INVALID", "Los parametros del consumidor no son validos.");
     }
 
     try {
@@ -256,7 +263,7 @@ module.exports = function signalingHandler(io, socket, roomManager) {
         appData       : consumer.appData,
       });
     } catch (err) {
-      replyError("live:consume", err.message, err);
+      replyError("live:consume", "CONSUME_FAILED", "No se pudo consumir la media.", err);
     }
   });
 
@@ -264,25 +271,25 @@ module.exports = function signalingHandler(io, socket, roomManager) {
     const targetRoomId = validateRoomId(roomId);
 
     if (!targetRoomId) {
-      return replyError("live:resumeConsumer", "Room id is required");
+      return replyError("live:resumeConsumer", "ROOM_ID_REQUIRED", "roomId es obligatorio.");
     }
     if (!validateRoomId(consumerId)) {
-      return replyError("live:resumeConsumer", "Consumer id is required");
+      return replyError("live:resumeConsumer", "CONSUMER_ID_REQUIRED", "consumerId es obligatorio.");
     }
 
     try {
       const room     = getAuthorizedRoom("live:resumeConsumer", targetRoomId);
       if (!room) return;
       const consumer = room._consumers.get(consumerId);
-      if (!consumer) return replyError("live:resumeConsumer", "Consumer not found");
+      if (!consumer) return replyError("live:resumeConsumer", "CONSUMER_NOT_FOUND", "El consumidor no existe o ya no esta disponible.");
       if (!room.ownsConsumer(socket.id, consumerId)) {
-        return replyError("live:resumeConsumer", "Consumer not found");
+        return replyError("live:resumeConsumer", "CONSUMER_NOT_FOUND", "El consumidor no existe o ya no esta disponible.");
       }
 
       await consumer.resume();
       logger.info(`Consumer resumed  consumerId=${consumerId}`);
     } catch (err) {
-      replyError("live:resumeConsumer", err.message, err);
+      replyError("live:resumeConsumer", "CONSUMER_RESUME_FAILED", "No se pudo reanudar el consumidor.", err);
     }
   });
 
@@ -301,7 +308,7 @@ module.exports = function signalingHandler(io, socket, roomManager) {
       socket.data.isArtist = false;
       io.to(targetRoomId).emit("live:listenerCount", { roomId: targetRoomId, count: room.listenerCount });
     } catch (err) {
-      replyError("live:leave", err.message, err);
+      replyError("live:leave", "LIVE_LEAVE_FAILED", "No se pudo salir de la sala de live.", err);
     }
   });
 

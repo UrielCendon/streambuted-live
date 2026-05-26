@@ -18,13 +18,13 @@ router.get("/rooms/:roomId", (req, res) => {
   const roomId = validateRoomId(req.params.roomId);
 
   if (!roomId) {
-    return sendError(res, 400, "VALIDATION_ERROR", "roomId is required");
+    return sendError(res, 400, "VALIDATION_ERROR", "roomId es obligatorio.");
   }
 
   const room = roomManager.getRoom(roomId);
 
   if (!room) {
-    return sendError(res, 404, "ROOM_NOT_FOUND", "Room was not found");
+    return sendError(res, 404, "ROOM_NOT_FOUND", "La sala no existe o ya no esta disponible.");
   }
 
   res.json(room.toJSON());
@@ -34,12 +34,12 @@ router.post("/rooms", async (req, res) => {
   const { userId, role, name: artistName } = req.user;
 
   if (String(role || "").toUpperCase().replace(/^ROLE_/, "") !== "ARTIST") {
-    return sendError(res, 403, "FORBIDDEN", "Only artists can create rooms");
+    return sendError(res, 403, "FORBIDDEN", "Solo los artistas pueden crear salas.");
   }
 
   const title = normalizeTitle(req.body?.title);
   if (!title) {
-    return sendError(res, 400, "VALIDATION_ERROR", "title is required");
+    return sendError(res, 400, "VALIDATION_ERROR", "El titulo es obligatorio.");
   }
 
   try {
@@ -53,7 +53,7 @@ router.post("/rooms", async (req, res) => {
     res.status(201).json(room.toJSON());
   } catch (err) {
     logger.error(`POST /rooms failed: ${err.message}`);
-    sendError(res, 500, "INTERNAL_ERROR", "Internal server error");
+    sendError(res, 500, "INTERNAL_ERROR", "Ocurrio un error interno. Intenta de nuevo mas tarde.");
   }
 });
 
