@@ -72,8 +72,11 @@ async function main() {
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
-      const authError = new Error("Falta el token Bearer.");
-      authError.data = { error: "AUTH_REQUIRED", message: "Falta el token Bearer." };
+      const authError = new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+      authError.data = {
+        error: "AUTH_REQUIRED",
+        message: "Tu sesion expiro. Inicia sesion nuevamente."
+      };
       return next(authError);
     }
 
@@ -83,8 +86,11 @@ async function main() {
       next();
     } catch (err) {
       logger.warn(`Socket auth failed: ${err.message}`);
-      const authError = new Error("El token no es valido o expiro.");
-      authError.data = { error: "AUTH_INVALID", message: "El token no es valido o expiro." };
+      const authError = new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+      authError.data = {
+        error: "AUTH_INVALID",
+        message: "Tu sesion expiro. Inicia sesion nuevamente."
+      };
       next(authError);
     }
   });

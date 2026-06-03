@@ -13,10 +13,64 @@ const {
 module.exports = function signalingHandler(io, socket, roomManager) {
   const { userId, role, name: userName } = socket.user;
   const isArtistRole = String(role || "").toUpperCase().replace(/^ROLE_/, "") === "ARTIST";
+  const publicErrorMessages = {
+    conflict_or_state_changed: "El contenido cambio y no se pudo completar la accion. Intenta nuevamente.",
+    dependency_validation_failed: "No se pudo validar la informacion relacionada con esta accion. Intenta nuevamente.",
+    invalid_input: "La solicitud no cumple con el formato esperado.",
+    request_timeout: "La solicitud tardo demasiado y no se pudo completar. Intenta nuevamente.",
+    resource_not_found: "El contenido solicitado ya no esta disponible.",
+    service_temporarily_unavailable: "Esta funcion no esta disponible en este momento. Intenta de nuevo mas tarde.",
+    unauthorized: "Tu sesion expiro. Inicia sesion nuevamente.",
+    unexpected_operation_failure: "No se pudo completar la accion en este momento. Intenta de nuevo mas tarde.",
+    forbidden: "No tienes permisos para esta accion.",
+  };
+
+  const inferPublicCode = (code, message) => {
+    const normalized = `${String(code || "").toLowerCase()} ${String(message || "").toLowerCase()}`;
+    if (normalized.includes("timeout") || normalized.includes("tardo demasiado")) {
+      return "request_timeout";
+    }
+    if (
+      normalized.includes("required")
+        || normalized.includes("invalid")
+        || normalized.includes("obligatorio")
+        || normalized.includes("no son validos")
+        || normalized.includes("no es valida")
+    ) {
+      return "invalid_input";
+    }
+    if (
+      normalized.includes("not_found")
+        || normalized.includes("no existe")
+        || normalized.includes("no esta disponible")
+        || normalized.includes("finalizo")
+    ) {
+      return "resource_not_found";
+    }
+    if (
+      normalized.includes("forbidden")
+        || normalized.includes("artist_role_required")
+        || normalized.includes("join_required")
+        || normalized.includes("no te pertenece")
+    ) {
+      return "forbidden";
+    }
+    if (
+      normalized.includes("failed")
+        || normalized.includes("create_failed")
+        || normalized.includes("connect_failed")
+        || normalized.includes("consume_failed")
+    ) {
+      return "service_temporarily_unavailable";
+    }
+    return "unexpected_operation_failure";
+  };
 
   const replyError = (event, code, message, err) => {
     logger.warn(`[${event}] error for user=${userId}: ${message}`, { err: err?.message });
-    socket.emit(`${event}:error`, { error: code, message });
+    const publicCode = inferPublicCode(code, message);
+    const publicMessage = publicErrorMessages[publicCode] ?? publicErrorMessages.unexpected_operation_failure;
+    socket.emit(`${event}:error`, { error: code, code: publicCode, message: publicMessage });
   };
 
   const getAuthorizedRoom = (event, roomId, direction = null) => {

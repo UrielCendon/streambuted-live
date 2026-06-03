@@ -5,6 +5,9 @@ const jwksRsa  = require("jwks-rsa");
 const logger   = require("../logger");
 
 const ACCOUNT_BANNED_MESSAGE = "La cuenta se encuentra suspendida.";
+const SESSION_UNAVAILABLE_MESSAGE = "Esta funcion no esta disponible en este momento. Intenta de nuevo mas tarde.";
+const SESSION_EXPIRED_MESSAGE = "Tu sesion expiro. Inicia sesion nuevamente.";
+const SESSION_INVALID_MESSAGE = "No se pudo validar tu sesion. Inicia sesion nuevamente.";
 const identityBaseUrl = (
   process.env.IDENTITY_BASE_URL
   || process.env.JWT_ISSUER
@@ -42,13 +45,13 @@ function validateToken(token) {
         audience  : process.env.JWT_AUDIENCE || "streambuted-api",
       },
       (err, decoded) => {
-        if (err) return reject(new Error("El token JWT no es valido."));
+        if (err) return reject(new Error(SESSION_EXPIRED_MESSAGE));
 
         const userId = decoded.sub;
         const role   = decoded.role || decoded.authorities?.[0] || "LISTENER";
         const name   = decoded.username || decoded.preferred_username || decoded.name || decoded.given_name || decoded.email || userId;
 
-        if (!userId) return reject(new Error("El token JWT no incluye el identificador del usuario."));
+        if (!userId) return reject(new Error(SESSION_INVALID_MESSAGE));
 
         validateAccountState(token)
           .then(() => resolve({ userId, role, name }))
@@ -69,7 +72,7 @@ async function validateAccountState(token) {
     });
   } catch (error) {
     logger.error(`Identity account validation failed: ${error.message}`);
-    const serviceError = new Error("La validacion de sesion no esta disponible temporalmente.");
+    const serviceError = new Error(SESSION_UNAVAILABLE_MESSAGE);
     serviceError.statusCode = 503;
     serviceError.error = "ServiceUnavailable";
     throw serviceError;
@@ -92,13 +95,13 @@ async function validateAccountState(token) {
   }
 
   if (response.status === 401) {
-    const authError = new Error("El token JWT es invalido o expiro.");
+    const authError = new Error(SESSION_EXPIRED_MESSAGE);
     authError.statusCode = 401;
     authError.error = "Unauthorized";
     throw authError;
   }
 
-  const serviceError = new Error("La validacion de sesion no esta disponible temporalmente.");
+  const serviceError = new Error(SESSION_UNAVAILABLE_MESSAGE);
   serviceError.statusCode = 503;
   serviceError.error = "ServiceUnavailable";
   throw serviceError;
