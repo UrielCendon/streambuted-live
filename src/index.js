@@ -12,6 +12,11 @@ const roomManager = require("./rooms/roomManager");
 const signalingHandler = require("./signaling/signalingHandler");
 const roomsRouter = require("./routes/rooms.routes");
 const { authMiddleware } = require("./auth/authMiddleware");
+const {
+  liveOpenApiDocument,
+  renderSwaggerUiHtml,
+  renderSwaggerUiInitializer,
+} = require("./openapi");
 
 function getAllowedOrigins() {
   const rawOrigins = process.env.CORS_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || "";
@@ -57,6 +62,19 @@ async function main() {
   app.use(corsMiddleware(allowedOrigins));
   app.use(express.json());
   app.get("/health", (_req, res) => res.json({ status: "ok", service: "live-service" }));
+  app.get("/api/v1/live/openapi.json", (_req, res) => res.json(liveOpenApiDocument));
+  app.get("/api/v1/live/docs", (_req, res) => {
+    res
+      .status(200)
+      .type("html")
+      .send(renderSwaggerUiHtml("StreamButed Live Service", "/api/v1/live/docs/swagger-ui.js"));
+  });
+  app.get("/api/v1/live/docs/swagger-ui.js", (_req, res) => {
+    res
+      .status(200)
+      .type("application/javascript")
+      .send(renderSwaggerUiInitializer("/api/v1/live/openapi.json"));
+  });
   app.use("/api/v1/live", authMiddleware, roomsRouter);
 
   const io = new Server(server, {
